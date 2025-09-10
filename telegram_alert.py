@@ -2,15 +2,15 @@ import requests
 
 # --- IMPORTANT ---
 # Paste your own Bot Token and Chat ID here
-BOT_TOKEN = "8459655122:AAHbrveXm-YJtUMA14wvBP-gEy0xABLMPjQ"
-CHAT_ID = "1362872793"
+BOT_TOKEN = "8282067282:AAHl9xUZvVyLnU8n_cIOs9D-TBB1uu9-QJo"
+CHAT_ID = "7570730250"
 
 def send_alert(message="Ambulance detected! Clearing route."):
     """
     Sends a message to your Telegram account via your bot.
     """
     # This is the URL for the Telegram Bot API
-    url = f"https://api.telegram.org/bot{B8459655122:AAHbrveXm-YJtUMA14wvBP-gEy0xABLMPjQ}/sendMessage"
+    url = f"https://api.telegram.org/bot{8282067282:AAHl9xUZvVyLnU8n_cIOs9D-TBB1uu9-QJo}/sendMessage"
     
     # This is the data we are sending
     payload = {

@@ -9,23 +9,25 @@ from ultralytics import YOLO
 import tkinter as tk
 from tkinter import filedialog
 import threading
-import queue
 import sounddevice as sd
 from scipy.fft import fft
+import time
 
 # ===================================================================
 # CONFIGURATION
 # ===================================================================
-BOT_TOKEN = "8459655122:AAHbrveXm-YJtUMA14wvBP-gEy0xABLMPjQ"
-CHAT_ID = "1362872793"
+BOT_TOKEN = "8282067282:AAHl9xUZvVyLnU8n_cIOs9D-TBB1uu9-QJo"
+CHAT_ID = "7570730250"
 PROCESS_EVERY_NTH_FRAME = 5 
 RESIZE_WIDTH = 640          
 
 # --- Audio Settings ---
 SIREN_FREQUENCY_RANGE = (700, 1500) 
 SIREN_LOUDNESS_THRESHOLD = 10      
+SIREN_TIMEOUT = 2.0  # seconds until traffic light resets to red
 
-siren_detected_queue = queue.Queue()
+# --- Shared State ---
+last_siren_time = 0  # timestamp of last detected siren
 
 # ===================================================================
 # HELPER FUNCTIONS
@@ -46,20 +48,26 @@ def choose_video_file():
     return filepath
 
 def audio_listener():
+    global last_siren_time
     SAMPLE_RATE = 44100
     CHUNK_SIZE = 1024
-    def audio_callback(indata, frames, time, status):
-        if status: print(status, flush=True)
+
+    def audio_callback(indata, frames, time_info, status):
+        global last_siren_time
+        if status:
+            print(status, flush=True)
+
         yf = fft(indata[:, 0])
         xf = np.fft.fftfreq(CHUNK_SIZE, 1 / SAMPLE_RATE)
         peak_index = np.argmax(np.abs(yf))
         peak_frequency = abs(xf[peak_index])
         peak_magnitude = np.abs(yf[peak_index])
-        if (SIREN_FREQUENCY_RANGE[0] < peak_frequency < SIREN_FREQUENCY_RANGE[1] and 
+
+        if (SIREN_FREQUENCY_RANGE[0] < peak_frequency < SIREN_FREQUENCY_RANGE[1] and
             peak_magnitude > SIREN_LOUDNESS_THRESHOLD):
+            last_siren_time = time.time()  # update last detection time
             print(f"SIREN DETECTED! (Freq: {peak_frequency:.0f} Hz, Loudness: {peak_magnitude:.0f})")
-            if siren_detected_queue.empty():
-                siren_detected_queue.put(True)
+
     print("🎤 Starting audio listener...")
     with sd.InputStream(callback=audio_callback, channels=1, samplerate=SAMPLE_RATE, blocksize=CHUNK_SIZE):
         while True:
@@ -73,7 +81,8 @@ def main():
     listener_thread.start()
 
     video_path = choose_video_file()
-    if not video_path: return
+    if not video_path:
+        return
 
     pygame.init()
     model = YOLO("yolov8n.pt")
@@ -88,38 +97,38 @@ def main():
     pygame.display.set_caption("Live Ambulance Detection")
     
     alert_sent, running, frame_count = False, True, 0
-    siren_heard = False
-    
+    last_results = None 
+
     RED, GREEN, BLACK = (255,0,0), (0,255,0), (0,0,0)
     BOX_COLOR_DEFAULT = (255, 0, 0) # Blue
-    last_results = None 
 
     while running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        # --- SIMPLIFIED LOGIC ---
-        # 1. Check if a siren has been heard
-        if not siren_detected_queue.empty():
-            siren_heard = siren_detected_queue.get()
+        # --- Siren detection logic ---
+        current_time = time.time()
+        siren_heard = (current_time - last_siren_time) < SIREN_TIMEOUT
 
-        # 2. If siren is heard, send the alert (only once)
         if siren_heard and not alert_sent:
             print("\n✅ SIREN CONFIRMED!")
             send_alert("🚨 Siren detected near Junction A! Clearing route now.")
             alert_sent = True
 
         success, frame = cap.read()
-        if not success: break
+        if not success:
+            # 🔄 Restart video when it ends
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
 
         resized_frame = cv2.resize(frame, (RESIZE_WIDTH, new_height))
         
-        # 3. Always run visual detection just for display
+        # Run visual detection periodically
         if frame_count % PROCESS_EVERY_NTH_FRAME == 0:
             last_results = model(resized_frame, verbose=False) 
         
-        # 4. Always draw the normal boxes
+        # Draw detection boxes
         if last_results:
             for r in last_results:
                 for box in r.boxes:
@@ -133,7 +142,7 @@ def main():
         frame_pygame = pygame.image.frombuffer(frame_rgb.tobytes(), frame_rgb.shape[1::-1], "RGB")
         screen.blit(frame_pygame, (0, 0))
 
-        # 5. Traffic light is now ONLY controlled by the siren
+        # Traffic light based on siren presence
         light_color = GREEN if siren_heard else RED
         traffic_light_x = RESIZE_WIDTH + 75
         pygame.draw.circle(screen, light_color, (traffic_light_x, 100), 40)
