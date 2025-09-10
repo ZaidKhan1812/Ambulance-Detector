@@ -80,8 +80,10 @@ def main():
     listener_thread = threading.Thread(target=audio_listener, daemon=True)
     listener_thread.start()
 
+    # --- Choose video via dialog ---
     video_path = choose_video_file()
     if not video_path:
+        print("No video selected, exiting program.")
         return
 
     pygame.init()
